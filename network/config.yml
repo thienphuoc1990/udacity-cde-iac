@@ -1,0 +1,157 @@
+AWSTemplateFormatVersion: 2010-09-09
+Metadata:
+  License: Apache-2.0
+  Author: Phuoc Dinh Thien
+Description: "My Final project for IaC - Udagram"
+Parameters:
+  UdagramStackName:
+    Description: Stack name for output
+    Type: String
+    Default: IaC-Final-Udagram
+  UdagramVPCCIDR:
+    Description: VPC CIDR
+    Type: String
+    Default: 10.0.0.0/16
+  UdagramPubSubnetCIDR:
+    Description: Public subnet CIDR
+    Type: String
+    Default: 10.0.1.0/24
+  UdagramPubSubnetCIDR2:
+    Description: Public subnet CIDR
+    Type: String
+    Default: 10.0.2.0/24
+  UdagramPriSubnetCIDR:
+    Description: Private subnet CIDR
+    Type: String
+    Default: 10.0.3.0/24
+  UdagramPriSubnetCIDR2:
+    Description: Private subnet CIDR
+    Type: String
+    Default: 10.0.4.0/24
+Resources:
+  # VPC
+  UdagramVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref UdagramVPCCIDR
+  # Gateway and Attach VPC - GW
+  UdagramInternetGateway:
+    Type: AWS::EC2::InternetGateway
+  UdagramAttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref UdagramVPC
+      InternetGatewayId: !Ref UdagramInternetGateway
+  # Subnets
+  UdagramPublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs "us-west-2"]
+      VpcId: !Ref UdagramVPC
+      CidrBlock: !Ref UdagramPubSubnetCIDR
+      MapPublicIpOnLaunch: true
+  UdagramPublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [1, !GetAZs "us-west-2"]
+      VpcId: !Ref UdagramVPC
+      CidrBlock: !Ref UdagramPubSubnetCIDR2
+      MapPublicIpOnLaunch: true
+  UdagramPrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs "us-west-2"]
+      VpcId: !Ref UdagramVPC
+      CidrBlock: !Ref UdagramPriSubnetCIDR
+  UdagramPrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [1, !GetAZs "us-west-2"]
+      VpcId: !Ref UdagramVPC
+      CidrBlock: !Ref UdagramPriSubnetCIDR2
+  # EIPs
+  UdagramElasticIP:
+    Type: AWS::EC2::EIP
+  UdagramElasticIP2:
+    Type: AWS::EC2::EIP
+  # NATs
+  UdagramNATGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      SubnetId: !Ref UdagramPublicSubnet
+      AllocationId: !GetAtt UdagramElasticIP.AllocationId
+  UdagramNATGateway2:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      SubnetId: !Ref UdagramPublicSubnet2
+      AllocationId: !GetAtt UdagramElasticIP2.AllocationId
+  # Route tables, routes and associations
+  # Public
+  UdagramPublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref UdagramVPC
+  UdagramPublicRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref UdagramPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref UdagramInternetGateway
+  UdagramPublicRouteTableSubnetAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref UdagramPublicSubnet
+      RouteTableId: !Ref UdagramPublicRouteTable
+  UdagramPublicRouteTableSubnetAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref UdagramPublicSubnet2
+      RouteTableId: !Ref UdagramPublicRouteTable
+  # Private
+  UdagramPrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref UdagramVPC
+  UdagramPrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref UdagramPrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref UdagramNATGateway
+  UdagramPrivateRouteTableSubnetAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref UdagramPrivateSubnet
+      RouteTableId: !Ref UdagramPrivateRouteTable
+
+  UdagramPrivateRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref UdagramVPC
+  UdagramPrivateRoute2:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref UdagramPrivateRouteTable2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref UdagramNATGateway2
+  UdagramPrivateRouteTableSubnetAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref UdagramPrivateSubnet2
+      RouteTableId: !Ref UdagramPrivateRouteTable2
+Outputs:
+  UdagramVPCId:
+    Description: VPC Id
+    Value: !Ref UdagramVPC
+    Export:
+      Name: !Sub ${UdagramStackName}-VPCID
+  UdagramPublicSubnetIdsList:
+    Description: Public subnet Id list
+    Value: !Join [",", [!Ref UdagramPublicSubnet, !Ref UdagramPublicSubnet2]]
+    Export:
+      Name: !Sub ${UdagramStackName}-PublicSubnetIdList
+  UdagramPrivateSubnetIdsList:
+    Description: Private subnet Id list
+    Value: !Join [",", [!Ref UdagramPrivateSubnet, !Ref UdagramPrivateSubnet2]]
+    Export:
+      Name: !Sub ${UdagramStackName}-PrivateSubnetIdList
