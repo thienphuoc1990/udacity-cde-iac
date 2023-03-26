@@ -1,0 +1,14 @@
+[
+    {
+        "ParameterKey": "UdagramStackName",
+        "ParameterValue": "IaC-Final-Udagram"
+    },
+    {
+        "ParameterKey": "UdagramInstanceType",
+        "ParameterValue": "t2.medium"
+    },
+    {
+        "ParameterKey": "UdagramAmi",
+        "ParameterValue": "ami-0a97be4c4be6d6cc4"
+    }
+]

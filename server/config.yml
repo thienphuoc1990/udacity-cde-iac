@@ -1,0 +1,172 @@
+AWSTemplateFormatVersion: 2010-09-09
+Metadata:
+  License: Apache-2.0
+  Author: Phuoc Dinh Thien
+Description: "My Final project for IaC - Udagram"
+Parameters:
+  UdagramStackName:
+    Description: Stack name for output
+    Type: String
+    Default: IaC-Final-Udagram
+  UdagramInstanceType:
+    Description: Instance type
+    Type: String
+    Default: t2.medium
+  UdagramAmi:
+    Type: String
+    Default: ami-0a97be4c4be6d6cc4 # Ubuntu 18 image
+Resources:
+  UdagramS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      AccessControl: Private
+  # Instance Profile
+  UdagramS3AllowOnly:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: "UdagramS3AllowOnly"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: "s3:*"
+                Resource:
+                  - !Sub arn:aws:s3:::${UdagramS3Bucket}/*
+  UdagramEC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref UdagramS3AllowOnly
+  # Load Balancer
+  UdagramLoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Load Balancer Security Group
+      VpcId:
+        Fn::ImportValue: !Sub ${UdagramStackName}-VPCID
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+  UdagramEC2LoadBalancingTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 25
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 5
+      Matcher:
+        HttpCode: "200"
+      Name: "iac-target"
+      Port: 80
+      Protocol: HTTP
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: "20"
+      UnhealthyThresholdCount: 3
+      VpcId:
+        Fn::ImportValue: !Sub ${UdagramStackName}-VPCID
+  UdagramEC2LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internet-facing
+      Subnets:
+        Fn::Split:
+          - ","
+          - Fn::ImportValue: !Sub ${UdagramStackName}-PublicSubnetIdList
+      SecurityGroups:
+        - !GetAtt UdagramLoadBalancerSecurityGroup.GroupId
+  UdagramLoadBalancingListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref UdagramEC2LoadBalancingTargetGroup
+      LoadBalancerArn: !Ref UdagramEC2LoadBalancer
+      Port: 80
+      Protocol: HTTP
+  # EC2 & Auto Scaling Group
+  UdagramEC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: EC2 Security Group
+      VpcId:
+        Fn::ImportValue: !Sub ${UdagramStackName}-VPCID
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+  UdagramEC2LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub ${UdagramStackName}-launch-template
+      LaunchTemplateData:
+        # IamInstanceProfile:
+        #   Arn: !GetAtt UdagramEC2InstanceProfile.Arn
+        ImageId: !Ref UdagramAmi
+        InstanceType: !Ref UdagramInstanceType
+        BlockDeviceMappings:
+          - DeviceName: "/dev/xvda"
+            Ebs:
+              VolumeSize: 10
+        SecurityGroupIds:
+          - !Ref UdagramEC2SecurityGroup
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            sudo apt update -y
+            sudo apt install apache2 -y
+            sudo systemctl start apache2
+            sudo systemctl enable apache2
+            cd /var/www/html
+            echo "Udacity Demo Web Server Up and Running!" > index.html
+  UdagramEC2AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: "udagram-ec2-autoscaling-group"
+      HealthCheckGracePeriod: 10
+      LaunchTemplate:
+        LaunchTemplateId: !Ref UdagramEC2LaunchTemplate
+        Version: !GetAtt UdagramEC2LaunchTemplate.LatestVersionNumber
+      MaxSize: 4
+      MinSize: 4
+      VPCZoneIdentifier:
+        Fn::Split:
+          - ","
+          - Fn::ImportValue: !Sub ${UdagramStackName}-PrivateSubnetIdList
+      TargetGroupARNs:
+        - !GetAtt UdagramEC2LoadBalancingTargetGroup.TargetGroupArn
+Outputs:
+  UdagramLoadBalancerEndpoint:
+    Description: Load balancer endpoint
+    Value: !GetAtt UdagramEC2LoadBalancer.DNSName
+    Export:
+      Name: !Sub ${UdagramStackName}-LoadBalancerDNS
